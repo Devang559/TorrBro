@@ -1,116 +1,277 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
-
-import React from 'react';
-import type {PropsWithChildren} from 'react';
+import React, {useEffect, useState} from 'react';
+import {Alert, StatusBar, StyleSheet, Text, useColorScheme} from 'react-native';
 import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  useColorScheme,
-  View,
-} from 'react-native';
-
+  DarkTheme,
+  DefaultTheme,
+  NavigationContainer,
+  Theme as NavigationTheme,
+} from '@react-navigation/native';
+import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
+import {createNativeStackNavigator} from '@react-navigation/native-stack';
+import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+  DownloadsScreen,
+  FilesScreen,
+  HomeScreen,
+  MediaPlayerScreen,
+  SearchResultsScreen,
+  SettingsScreen,
+  SplashScreen,
+  TorrentDetailsScreen,
+} from './src/screens';
+import type {TabParamList, RootStackParamList} from './src/navigation/types';
+import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import {palette} from './src/theme/theme';
+import {
+  isTorrentDownloadsSupported,
+  torrentDownloadService,
+  type TorrentDownload,
+} from './src/services/torrentDownload';
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
+const Tabs = createBottomTabNavigator<TabParamList>();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
+const tabItems = [
+  {name: 'Discover', label: 'Discover', icon: '⌂'},
+  {name: 'Search', label: 'Search', icon: '⌕'},
+  {name: 'Downloads', label: 'Downloads', icon: '↓'},
+  {name: 'Settings', label: 'Settings', icon: '⚙'},
+] as const;
+
+const tabIcons = {
+  Discover: createTabIcon('⌂'),
+  Search: createTabIcon('⌕'),
+  Downloads: createTabIcon('↓'),
+  Settings: createTabIcon('⚙'),
+};
+
+function createTabIcon(glyph: string) {
+  return function TabBarIcon({color}: {color: string}) {
+    return <Text style={[styles.tabIcon, {color}]}>{glyph}</Text>;
+  };
 }
 
 function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+  const systemScheme = useColorScheme();
+  const [themeName, setThemeName] = useState<'light' | 'dark'>(
+    systemScheme === 'dark' ? 'dark' : 'light',
+  );
+  const [torrentsApiBaseUrl, setTorrentsApiBaseUrl] = useState('');
+  const [torrentDownloads, setTorrentDownloads] = useState<TorrentDownload[]>([]);
+  const [showSplash, setShowSplash] = useState(true);
+  const colors = palette[themeName];
 
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), 1100);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!isTorrentDownloadsSupported) {
+      return;
+    }
+    let active = true;
+    const unsubscribe = torrentDownloadService.subscribe(setTorrentDownloads);
+    torrentDownloadService
+      .getAll()
+      .then(items => {
+        if (active) {
+          setTorrentDownloads(items);
+        }
+      })
+      .catch(error => {
+        if (active) {
+          Alert.alert(
+            'Unable to load downloads',
+            error instanceof Error ? error.message : 'Please restart the app and try again.',
+          );
+        }
+      });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  const navigationTheme: NavigationTheme = {
+    ...(themeName === 'dark' ? DarkTheme : DefaultTheme),
+    colors: {
+      ...(themeName === 'dark' ? DarkTheme.colors : DefaultTheme.colors),
+      background: colors.background,
+      card: colors.background,
+      text: colors.text,
+      border: colors.border,
+      primary: colors.primary,
+      notification: colors.primary,
+    },
   };
 
   return (
-    <SafeAreaView style={backgroundStyle}>
+    <SafeAreaProvider>
       <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
+        barStyle={themeName === 'dark' ? 'light-content' : 'dark-content'}
+        backgroundColor={colors.background}
       />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        style={backgroundStyle}>
-        <Header />
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
+      {showSplash ? (
+        <SplashScreen theme={themeName} />
+      ) : (
+        <NavigationContainer theme={navigationTheme}>
+          <Stack.Navigator
+            screenOptions={{
+              headerStyle: {backgroundColor: colors.background},
+              headerTintColor: colors.text,
+              headerTitleStyle: {fontWeight: '700'},
+              headerShadowVisible: false,
+              contentStyle: {backgroundColor: colors.background},
+              animation: 'slide_from_right',
+            }}>
+            <Stack.Screen name="Main" options={{headerShown: false}}>
+              {({navigation}) => (
+                <MainTabs
+                  themeName={themeName}
+                  setThemeName={setThemeName}
+                  torrentsApiBaseUrl={torrentsApiBaseUrl}
+                  setTorrentsApiBaseUrl={setTorrentsApiBaseUrl}
+                  downloads={torrentDownloads}
+                  rootNavigation={navigation}
+                />
+              )}
+            </Stack.Screen>
+            <Stack.Screen
+              name="TorrentDetails"
+              options={{title: 'Torrent details'}}>
+              {({route, navigation}) => (
+                <TorrentDetailsScreen
+                  theme={themeName}
+                  route={route}
+                  navigation={navigation}
+                  onAddTorrent={torrent =>
+                    torrentDownloadService.add(torrent.title, torrent.magnet)
+                  }
+                />
+              )}
+            </Stack.Screen>
+            <Stack.Screen
+              name="Files"
+              options={{title: 'Files'}}>
+              {() => <FilesScreen theme={themeName} />}
+            </Stack.Screen>
+            <Stack.Screen
+              name="Player"
+              options={{title: 'Now playing'}}>
+              {() => <MediaPlayerScreen theme={themeName} />}
+            </Stack.Screen>
+          </Stack.Navigator>
+        </NavigationContainer>
+      )}
+    </SafeAreaProvider>
+  );
+}
+
+type AppProps = {
+  themeName: 'light' | 'dark';
+  setThemeName: React.Dispatch<React.SetStateAction<'light' | 'dark'>>;
+  torrentsApiBaseUrl: string;
+  setTorrentsApiBaseUrl: React.Dispatch<React.SetStateAction<string>>;
+  downloads: TorrentDownload[];
+  rootNavigation: NativeStackNavigationProp<RootStackParamList, 'Main'>;
+};
+
+function MainTabs({
+  themeName,
+  setThemeName,
+  torrentsApiBaseUrl,
+  setTorrentsApiBaseUrl,
+  downloads,
+  rootNavigation,
+}: AppProps) {
+  const colors = palette[themeName];
+  return (
+    <Tabs.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: 'fade',
+        transitionSpec: {
+          animation: 'timing',
+          config: {duration: 180},
+        },
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textSoft,
+        tabBarStyle: {
+          height: 66,
+          paddingTop: 8,
+          paddingBottom: 8,
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
+        },
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: '700',
+        },
+        tabBarIconStyle: {marginTop: 1},
+      }}>
+      {tabItems.map(tab => (
+        <Tabs.Screen
+          key={tab.name}
+          name={tab.name}
+          options={{
+            title: tab.label,
+            tabBarIcon: tabIcons[tab.name],
           }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+          {({navigation, route}) => {
+            if (route.name === 'Discover') {
+              return (
+                <HomeScreen
+                  theme={themeName}
+                  onSearch={() => navigation.navigate('Search')}
+                />
+              );
+            }
+            if (route.name === 'Search') {
+              return (
+                <SearchResultsScreen
+                  theme={themeName}
+                  initialQuery={route.params?.query}
+                  torrentsApiBaseUrl={torrentsApiBaseUrl}
+                  onSelectTorrent={torrent =>
+                    rootNavigation.navigate('TorrentDetails', {torrent})
+                  }
+                />
+              );
+            }
+            if (route.name === 'Downloads') {
+              return (
+                <DownloadsScreen
+                  theme={themeName}
+                  downloads={downloads}
+                  onPause={torrentDownloadService.pause}
+                  onResume={torrentDownloadService.resume}
+                  onRemove={torrentDownloadService.remove}
+                />
+              );
+            }
+            return (
+              <SettingsScreen
+                theme={themeName}
+                torrentsApiBaseUrl={torrentsApiBaseUrl}
+                onChangeTorrentsApiBaseUrl={setTorrentsApiBaseUrl}
+                onToggleTheme={() =>
+                  setThemeName(current =>
+                    current === 'dark' ? 'light' : 'dark',
+                  )
+                }
+              />
+            );
+          }}
+        </Tabs.Screen>
+      ))}
+    </Tabs.Navigator>
   );
 }
 
 const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-  },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
-  },
-  highlight: {
+  tabIcon: {
+    fontSize: 20,
     fontWeight: '700',
   },
 });

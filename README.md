@@ -1,5 +1,28 @@
 This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
 
+## Torrent search sources
+
+The Search screen connects directly to The Pirate Bay JSON API and YTS. MagnetDL
+and LimeTorrents use the self-hosted
+[Torrents API](https://github.com/joybiswas007/torrents-api), which exposes
+`POST /torrents/api/v1/magnetdl` and
+`POST /torrents/api/v1/limetorrents`. Enter the base URL of your running API
+server in **Settings → Search sources**. The app sends
+`{ "page": 1, "search": "..." }` as JSON. Without a configured API server, those
+sources are omitted from combined searches and show a setup message when
+selected directly.
+
+## Torrent downloads
+
+On Android, open a result and choose **Download torrent** to start a native
+libtorrent transfer. Downloads use the Android app's private Downloads folder
+(`Android/data/com.torrbro/files/Download/TorrBro`), support pause/resume and
+removal from the Downloads tab, and show live speed, progress, and peer counts.
+The engine allows up to 500 peer connections, five simultaneous downloads,
+and leaves transfer-rate limits disabled. Transfers run while the app process
+is alive; they are not yet restored after the app is force-stopped or restarted.
+Torrent downloading is not currently implemented for iOS.
+
 # Getting Started
 
 >**Note**: Make sure you have completed the [React Native - Environment Setup](https://reactnative.dev/docs/environment-setup) instructions till "Creating a new application" step, before proceeding.
