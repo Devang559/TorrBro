@@ -18,23 +18,20 @@ permissions:
 
 jobs:
   build-release-apk:
-    name: Build and Publish Android APK
+    name: Build, Compress and Publish APK
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout repository
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. Set up Node.js
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: "20"
           cache: npm
           cache-dependency-path: package-lock.json
 
-      # 3. Set up Java
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -42,63 +39,78 @@ jobs:
           java-version: "17"
           cache: gradle
 
-      # 4. Install JavaScript dependencies
-      - name: Install npm dependencies
+      - name: Install dependencies
         run: npm ci
 
-      # 5. Build release APK
-      - name: Build Release APK
+      - name: Build release APK
         working-directory: android
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --stacktrace
-        env:
-          KEYSTORE_PATH: ${{ secrets.KEYSTORE_PATH }}
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-      # 6. Verify APK exists
-      - name: Verify APK
+      - name: Find and verify APK
+        id: apk
         shell: bash
         run: |
           APK="android/app/build/outputs/apk/release/app-release.apk"
 
           if [ ! -f "$APK" ]; then
-            echo "ERROR: Release APK was not generated."
-            echo "Available APK files:"
+            echo "Expected APK not found: $APK"
+            echo "Searching for generated APK files..."
             find android/app/build/outputs -type f -name "*.apk" || true
             exit 1
           fi
 
-          echo "APK successfully generated:"
+          echo "path=$APK" >> "$GITHUB_OUTPUT"
           ls -lh "$APK"
 
-      # 7. Upload APK to GitHub Actions artifacts
-      - name: Upload APK Artifact
+      - name: Compress APK
+        id: compress
+        shell: bash
+        run: |
+          mkdir -p release-assets
+
+          cp "${{ steps.apk.outputs.path }}" release-assets/app-release.apk
+
+          cd release-assets
+          zip -9 -X app-release.zip app-release.apk
+          cd ..
+
+          echo "zip_path=release-assets/app-release.zip" >> "$GITHUB_OUTPUT"
+
+          echo "Original APK size:"
+          ls -lh "${{ steps.apk.outputs.path }}"
+
+          echo "Compressed ZIP size:"
+          ls -lh release-assets/app-release.zip
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          name: android-release-files
+          path: |
+            ${{ steps.apk.outputs.path }}
+            ${{ steps.compress.outputs.zip_path }}
           if-no-files-found: error
           retention-days: 30
 
-      # 8. Publish APK to GitHub Releases when a version tag is pushed
-      - name: Publish GitHub Release
+      - name: Publish APK and ZIP to GitHub Releases
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
           body: |
-            ## Android APK
+            ## Android Release
 
-            Download `app-release.apk` from the Assets section below.
-
-          files: android/app/build/outputs/apk/release/app-release.apk
+            - **app-release.apk** — Install the Android application directly.
+            - **app-release.zip** — Download the compressed APK and extract it before installation.
+          files: |
+            ${{ steps.apk.outputs.path }}
+            ${{ steps.compress.outputs.zip_path }}
+          fail_on_unmatched_files: true
           draft: false
           prerelease: false
-          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

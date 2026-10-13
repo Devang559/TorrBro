@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View} from 'react-native';
 import { commonSettings } from '../data/mockData';
 import { palette, radius, spacing, typography } from '../theme/theme';
 
@@ -8,6 +8,8 @@ type SettingsScreenProps = {
   onToggleTheme: () => void;
   torrentsApiBaseUrl: string;
   onChangeTorrentsApiBaseUrl: (url: string) => void;
+  downloadLocation: string;
+  onPressDownloadLocation: () => void;
 };
 
 export function SettingsScreen({
@@ -15,6 +17,8 @@ export function SettingsScreen({
   onToggleTheme,
   torrentsApiBaseUrl,
   onChangeTorrentsApiBaseUrl,
+  downloadLocation,
+  onPressDownloadLocation,
 }: SettingsScreenProps) {
   const colors = palette[theme];
   const styles = createStyles(colors);
@@ -91,6 +95,25 @@ export function SettingsScreen({
           <Text style={[styles.bandValue, {color: colors.text}]}>12 MB/s</Text>
         </View>
       </View>
+
+      <View style={[styles.panel, {backgroundColor: colors.surface, borderColor: colors.border}]}>
+        <Text style={[styles.panelTitle, {color: colors.text}]}>Storage</Text>
+        <View style={styles.settingRow}>
+          <View style={styles.themeCopy}>
+            <Text style={[styles.settingLabel, {color: colors.text}]}>Download folder</Text>
+            <Text style={[styles.locationPath, {color: colors.textSoft}]} numberOfLines={1}>
+              {downloadLocation}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Select download folder"
+            onPress={onPressDownloadLocation}
+            style={[styles.locationButton, {borderColor: colors.border}]}>
+            <Text style={[styles.locationButtonText, {color: colors.primary}]}>Change</Text>
+          </Pressable>
+        </View>
+      </View>
     </ScrollView>
   );
 }
@@ -158,6 +181,21 @@ const createStyles = (colors: (typeof palette)['light']) =>
     },
     bandValue: {
       fontSize: typography.body,
+      fontWeight: '700',
+    },
+    locationPath: {
+      fontSize: 11,
+      lineHeight: 16,
+      marginTop: 3,
+    },
+    locationButton: {
+      borderWidth: 1,
+      borderRadius: radius.md,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 6,
+    },
+    locationButtonText: {
+      fontSize: 12,
       fontWeight: '700',
     },
   });

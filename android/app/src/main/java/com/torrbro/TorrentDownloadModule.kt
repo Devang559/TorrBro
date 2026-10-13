@@ -1,8 +1,16 @@
 package com.torrbro
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+import android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+import android.net.Uri
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
+import com.facebook.react.bridge.ActivityEventListener
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -22,18 +30,28 @@ import java.util.concurrent.Executors
 
 class TorrentDownloadModule(
   private val context: ReactApplicationContext,
-) : ReactContextBaseJavaModule(context) {
+) : ReactContextBaseJavaModule(context), ActivityEventListener {
   private val sessionManager = SessionManager()
   private val handles = ConcurrentHashMap<String, TorrentHandle>()
   private val titles = ConcurrentHashMap<String, String>()
   private val pausedIds = ConcurrentHashMap.newKeySet<String>()
   private val executor = Executors.newSingleThreadExecutor()
   private val handler = Handler(Looper.getMainLooper())
-  private val downloadDirectory = File(
-    context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir,
-    "TorrBro",
-  )
+  private val prefs = context.getSharedPreferences("torrbro_prefs", Activity.MODE_PRIVATE)
+  private val folderPickerRequestCode = 42
+  @Volatile private var folderPickerPromise: Promise? = null
   @Volatile private var sessionStarted = false
+  private var downloadDirectory: File
+
+  companion object {
+    private const val KEY_DOWNLOAD_DIR = "download_directory"
+  }
+
+  private fun defaultDownloadDirectory(): File =
+    File(
+      context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir,
+      "TorrBro",
+    )
 
   private val alertListener = object : AlertListener {
     override fun types(): IntArray? = null
@@ -56,15 +74,6 @@ class TorrentDownloadModule(
     }
   }
 
-  override fun getName() = "TorrentDownloadManager"
-
-  init {
-    downloadDirectory.mkdirs()
-    sessionManager.addListener(alertListener)
-    startSession()
-    handler.post(statusUpdater)
-  }
-
   private fun startSession() {
     if (sessionStarted) return
     sessionManager.start()
@@ -74,6 +83,108 @@ class TorrentDownloadModule(
     sessionManager.downloadRateLimit(0)
     sessionManager.uploadRateLimit(0)
     sessionStarted = true
+  }
+
+  init {
+    val savedPath = prefs.getString(KEY_DOWNLOAD_DIR, null)
+    downloadDirectory = if (savedPath != null) {
+      File(savedPath).takeIf { it.exists() && it.isDirectory } ?: defaultDownloadDirectory()
+    } else {
+      defaultDownloadDirectory()
+    }
+    downloadDirectory.mkdirs()
+    sessionManager.addListener(alertListener)
+    startSession()
+    handler.post(statusUpdater)
+    context.addActivityEventListener(this)
+  }
+
+  override fun getName() = "TorrentDownloadManager"
+
+  @ReactMethod
+  fun getDownloadDirectory(promise: Promise) {
+    promise.resolve(downloadDirectory.absolutePath)
+  }
+
+  @ReactMethod
+  fun setDownloadDirectory(path: String, promise: Promise) {
+    val newDir = File(path)
+    if (!newDir.exists()) {
+      if (!newDir.mkdirs()) {
+        promise.reject("DIR_CREATE_FAILED", "Unable to create the directory: $path")
+        return
+      }
+    }
+    if (!newDir.isDirectory) {
+      promise.reject("INVALID_PATH", "$path is not a directory.")
+      return
+    }
+    if (!newDir.canWrite()) {
+      promise.reject("DIR_NOT_WRITABLE", "$path is not writable.")
+      return
+    }
+    downloadDirectory = newDir
+    prefs.edit().putString(KEY_DOWNLOAD_DIR, path).apply()
+    promise.resolve(path)
+  }
+
+  @ReactMethod
+  fun openFolderPicker(promise: Promise) {
+    val activity = currentActivity ?: run {
+      promise.reject("NO_ACTIVITY", "No active activity to open the folder picker.")
+      return
+    }
+    folderPickerPromise = promise
+    try {
+      val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+        flags = FLAG_GRANT_READ_URI_PERMISSION or FLAG_GRANT_WRITE_URI_PERMISSION
+      }
+      activity.startActivityForResult(intent, folderPickerRequestCode)
+    } catch (e: ActivityNotFoundException) {
+      promise.reject("NO_PICKER", "No app available to pick a folder.")
+    }
+  }
+
+  override fun onActivityResult(activity: Activity?, requestCode: Int, resultCode: Int, data: Intent?): Unit {
+    if (requestCode == folderPickerRequestCode) {
+      val promise = folderPickerPromise ?: return
+      if (resultCode == Activity.RESULT_OK && data != null) {
+        val uri: Uri = data.data ?: run {
+          promise.reject("NO_URI", "No folder was selected.")
+          return
+        }
+        val takeFlags = data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        context.contentResolver.takePersistableUriPermission(uri, takeFlags)
+        val path = resolvePathFromUri(uri)
+        if (path == null) {
+          promise.reject("PATH_RESOLUTION_FAILED", "Could not resolve a file system path for the selected folder. Please choose a different location.")
+          return
+        }
+        setDownloadDirectory(path, promise)
+      } else {
+        promise.reject("USER_CANCELED", "Folder selection was cancelled.")
+      }
+      folderPickerPromise = null
+    }
+  }
+
+  override fun onNewIntent(intent: Intent?) {
+    // No-op: folder picker is handled via onActivityResult
+  }
+
+  private fun resolvePathFromUri(uri: Uri): String? {
+    val docId = DocumentsContract.getDocumentId(uri)
+    val parts = docId.split(":")
+    if (parts.size >= 2 && parts[0].equals("primary", ignoreCase = true)) {
+      return Environment.getExternalStorageDirectory().absolutePath + "/" + parts[1]
+    }
+    val authority = uri.authority
+    if (authority == "com.android.externalstorage.documents") {
+      val storageVolume = parts.getOrNull(0) ?: return null
+      val relativePath = parts.getOrElse(1) { "" }
+      return "/storage/$storageVolume/$relativePath"
+    }
+    return null
   }
 
   @ReactMethod

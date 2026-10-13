@@ -58,6 +58,7 @@ function App(): React.JSX.Element {
   );
   const [torrentsApiBaseUrl, setTorrentsApiBaseUrl] = useState('');
   const [torrentDownloads, setTorrentDownloads] = useState<TorrentDownload[]>([]);
+  const [downloadLocation, setDownloadLocation] = useState('');
   const [showSplash, setShowSplash] = useState(true);
   const colors = palette[themeName];
 
@@ -87,11 +88,35 @@ function App(): React.JSX.Element {
           );
         }
       });
+    torrentDownloadService
+      .getDownloadLocation()
+      .then(path => setDownloadLocation(path))
+      .catch(() => undefined);
     return () => {
       active = false;
       unsubscribe();
     };
   }, []);
+
+  const handleSelectDownloadLocation = async () => {
+    if (!isTorrentDownloadsSupported) {
+      Alert.alert('Downloads not supported', 'Torrent downloads are currently available on Android only.');
+      return;
+    }
+    try {
+      await torrentDownloadService.openDownloadLocationPicker();
+      const path = await torrentDownloadService.getDownloadLocation();
+      setDownloadLocation(path);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('cancelled')) {
+        return;
+      }
+      Alert.alert(
+        'Download folder selection failed',
+        error instanceof Error ? error.message : 'Please try again.',
+      );
+    }
+  };
 
   const navigationTheme: NavigationTheme = {
     ...(themeName === 'dark' ? DarkTheme : DefaultTheme),
@@ -134,6 +159,8 @@ function App(): React.JSX.Element {
                   setTorrentsApiBaseUrl={setTorrentsApiBaseUrl}
                   downloads={torrentDownloads}
                   rootNavigation={navigation}
+                  downloadLocation={downloadLocation}
+                  onPressDownloadLocation={handleSelectDownloadLocation}
                 />
               )}
             </Stack.Screen>
@@ -175,6 +202,8 @@ type AppProps = {
   setTorrentsApiBaseUrl: React.Dispatch<React.SetStateAction<string>>;
   downloads: TorrentDownload[];
   rootNavigation: NativeStackNavigationProp<RootStackParamList, 'Main'>;
+  downloadLocation: string;
+  onPressDownloadLocation: () => void;
 };
 
 function MainTabs({
@@ -184,6 +213,8 @@ function MainTabs({
   setTorrentsApiBaseUrl,
   downloads,
   rootNavigation,
+  downloadLocation,
+  onPressDownloadLocation,
 }: AppProps) {
   const colors = palette[themeName];
   return (
@@ -255,6 +286,8 @@ function MainTabs({
                 theme={themeName}
                 torrentsApiBaseUrl={torrentsApiBaseUrl}
                 onChangeTorrentsApiBaseUrl={setTorrentsApiBaseUrl}
+                downloadLocation={downloadLocation}
+                onPressDownloadLocation={onPressDownloadLocation}
                 onToggleTheme={() =>
                   setThemeName(current =>
                     current === 'dark' ? 'light' : 'dark',

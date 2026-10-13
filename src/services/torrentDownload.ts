@@ -19,6 +19,9 @@ type NativeTorrentDownloadManager = {
   pauseTorrent: (id: string) => Promise<void>;
   resumeTorrent: (id: string) => Promise<void>;
   removeTorrent: (id: string) => Promise<void>;
+  getDownloadDirectory: () => Promise<string>;
+  setDownloadDirectory: (path: string) => Promise<string>;
+  openFolderPicker: () => Promise<string>;
   addListener: (eventName: string) => void;
   removeListeners: (count: number) => void;
 };
@@ -48,6 +51,10 @@ export const torrentDownloadService = {
   pause: (id: string) => requireManager().pauseTorrent(id),
   resume: (id: string) => requireManager().resumeTorrent(id),
   remove: (id: string) => requireManager().removeTorrent(id),
+  getDownloadLocation: () => requireManager().getDownloadDirectory(),
+  setDownloadLocation: (path: string) =>
+    requireManager().setDownloadDirectory(path),
+  openDownloadLocationPicker: () => requireManager().openFolderPicker(),
   subscribe: (listener: (downloads: TorrentDownload[]) => void) => {
     if (!emitter) {
       return () => undefined;
